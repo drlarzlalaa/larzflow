@@ -1,0 +1,104 @@
+# executor - runs a validated dag (see lib/dag.lz) in topological order.
+#
+# Failure handling: when a step fails for good (after any configured
+# retries are exhausted), every step that directly or transitively
+# depends on it is marked "skipped" rather than run - but any OTHER step
+# whose dependencies are all still satisfied keeps running. One failed
+# branch doesn't abort the whole run.
+#
+# State is persisted to a JSON file after every single step (not just at
+# the end), under `<state_dir>/<run_id>.json` (state_dir defaults to
+# ".larzflow/runs"), so a crash mid-run still leaves a readable partial
+# record `larzflow status <run_id>` can show.
+#
+#   import "executor" as executor
+#   let state = executor.run(d)
+#   print(state["run_id"])
+
+import "dag" as dag
+import "retry" as retry
+import "budgetgate" as budgetgate
+import "fs" as fs
+import "json" as json
+import "uuid" as uuid
+
+fn _state_path(state_dir, run_id) { return state_dir + "/" + run_id + ".json" }
+
+fn _save(state_dir, state) {
+  fs.mkdirs(state_dir)
+  fs.write(_state_path(state_dir, state["run_id"]), json.stringify(state))
+}
+
+# opts: run_id (default a fresh ULID - time-sortable), state_dir
+# (default ".larzflow/runs").
+fn run(d, opts={}) {
+  let order = dag.validate(d)   # throws before anything is persisted if the graph is bad
+
+  let run_id = opts.has("run_id") ? opts["run_id"] : uuid.ulid()
+  let state_dir = opts.has("state_dir") ? opts["state_dir"] : ".larzflow/runs"
+
+  let state = {
+    "dag": d["name"], "run_id": run_id, "order": order,
+    "started_at": time(), "finished_at": nil, "steps": {}
+  }
+  _save(state_dir, state)
+
+  let failed = {}   # step id -> true, for both real failures and skips (either way, dependents must skip)
+
+  for id in order {
+    let step = d["steps"][id]
+
+    let blocking_dep = nil
+    for dep in step["depends_on"] {
+      if failed.has(dep) { blocking_dep = dep }
+    }
+
+    if blocking_dep != nil {
+      state["steps"][id] = {
+        "status": "skipped", "duration_s": 0,
+        "reason": "dependency '" + blocking_dep + "' did not complete"
+      }
+      failed[id] = true
+      _save(state_dir, state)
+      continue
+    }
+
+    let start_t = clock()
+    try {
+      if step["budget_gate"] != nil { budgetgate.check(step["budget_gate"]) }
+
+      let result = nil
+      if step["retry"] != nil {
+        result = retry.call(step["fn"], step["retry"])
+      } else {
+        result = step["fn"]()
+      }
+
+      if step["budget_gate"] != nil { budgetgate.record(step["budget_gate"]) }
+
+      state["steps"][id] = {
+        "status": "ok", "duration_s": round(clock() - start_t, 4), "result": str(result)
+      }
+    } catch e {
+      state["steps"][id] = {
+        "status": "fail", "duration_s": round(clock() - start_t, 4),
+        "error": e["type"] + ": " + e["message"]
+      }
+      failed[id] = true
+    }
+    _save(state_dir, state)
+  }
+
+  state["finished_at"] = time()
+  _save(state_dir, state)
+  return state
+}
+
+# Reads a persisted run's state back from disk (e.g. for `larzflow status`).
+fn load(run_id, state_dir="./.larzflow/runs") {
+  let path = _state_path(state_dir, run_id)
+  if not fs.exists(path) {
+    throw {"type": "LarzValueError", "message": "no run found with id '" + run_id + "' under " + state_dir}
+  }
+  return json.parse(fs.read(path))
+}

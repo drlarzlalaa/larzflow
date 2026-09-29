@@ -1,0 +1,25 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install larzscript
+        run: curl -fsSL https://raw.githubusercontent.com/larz-scripter/larzscript/main/install.sh | sh
+      - name: install packages this project uses
+        run: |
+          mkdir -p ~/.larzscript/lib
+          for pkg in cron retry budget fs json uuid random; do
+            curl -fsSL "https://raw.githubusercontent.com/larz-scripter/larzscript-packages/master/packages/$pkg/main.lz" -o ~/.larzscript/lib/"$pkg".lz
+          done
+      - name: syntax check
+        run: |
+          larzscript --check lib/dag.lz
+          larzscript --check lib/executor.lz
+          larzscript --check lib/budgetgate.lz
+          larzscript --check lib/schedule.lz
+          larzscript --check lib/report.lz
+          larzscript --check bin/larzflow.lz
+      - name: run tests
+        run: sh tests/run_tests.sh

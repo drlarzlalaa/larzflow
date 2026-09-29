@@ -1,0 +1,7 @@
+# A deliberately cyclic workflow, for tests/cycle.sh - dag.validate()
+# must reject this before anything runs.
+import "../../lib/dag" as dag
+
+let workflow = dag.new("cyclic")
+dag.step(workflow, "x", fn() { return 1 }, {"depends_on": ["y"]})
+dag.step(workflow, "y", fn() { return 1 }, {"depends_on": ["x"]})

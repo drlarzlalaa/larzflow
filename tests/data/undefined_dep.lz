@@ -1,0 +1,6 @@
+# A workflow whose only step depends on an id that was never defined,
+# for tests/undefined_dep.sh - dag.validate() must reject this too.
+import "../../lib/dag" as dag
+
+let workflow = dag.new("bad")
+dag.step(workflow, "a", fn() { return 1 }, {"depends_on": ["nope"]})

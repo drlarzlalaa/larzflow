@@ -1,0 +1,25 @@
+# A workflow with two steps gated on the same spending category. The
+# category has a $1.00 limit; "cheap_call" costs $0.60 and fits,
+# "pricey_call" costs $0.70 and would push the category to $1.30, over
+# the limit, so it's blocked before it ever runs - the budget's
+# recorded spend stays at $0.60, not $1.30.
+#
+#   larzscript bin/larzflow.lz run examples/budget_gate.lz
+
+import "../lib/dag" as dag
+import "budget" as budget
+
+let b = budget.new()
+budget.set_limit(b, "api_calls", $1.00)
+
+let workflow = dag.new("budget-gated")
+
+dag.step(workflow, "cheap_call", fn() {
+  print("calling the cheap endpoint...")
+  return "ok"
+}, {"budget_gate": {"budget": b, "category": "api_calls", "cost": $0.60}})
+
+dag.step(workflow, "pricey_call", fn() {
+  print("this should never print - blocked by the budget gate")
+  return "ok"
+}, {"depends_on": ["cheap_call"], "budget_gate": {"budget": b, "category": "api_calls", "cost": $0.70}})

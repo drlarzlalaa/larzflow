@@ -1,0 +1,29 @@
+# A workflow where one step fails on purpose. "notify" has no
+# dependency on the failing step, so it still runs; "report", which
+# depends on the failing step, is correctly marked skipped rather than
+# silently running on bad data.
+#
+#   larzscript bin/larzflow.lz run examples/failing.lz
+
+import "../lib/dag" as dag
+
+let workflow = dag.new("etl-with-failure")
+
+dag.step(workflow, "fetch", fn() {
+  print("fetching source data...")
+  return "raw-data"
+})
+
+dag.step(workflow, "transform", fn() {
+  throw {"type": "LarzValueError", "message": "malformed row 17: missing 'id' field"}
+}, {"depends_on": ["fetch"], "retry": {"max_attempts": 2, "base_delay": 0}})
+
+dag.step(workflow, "report", fn() {
+  print("this should never print")
+  return "report sent"
+}, {"depends_on": ["transform"]})
+
+dag.step(workflow, "notify", fn() {
+  print("notifying on-call (unrelated to the fetch/transform/report branch)...")
+  return "notified"
+})

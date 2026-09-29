@@ -1,0 +1,8 @@
+fetching source data...
+notifying on-call (unrelated to the fetch/transform/report branch)...
+run failing-1 (etl-with-failure)
+  [ok]   fetch (Xs)
+  [fail] transform: LarzValueError: malformed row 17: missing 'id' field (line 18) (line 25)
+  [skip] report (dependency 'transform' did not complete)
+  [ok]   notify (Xs)
+exit 1

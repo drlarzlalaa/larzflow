@@ -1,0 +1,6 @@
+run status-demo (etl-linear)
+  [ok]   fetch (Xs)
+  [ok]   transform (Xs)
+  [ok]   load (Xs)
+exit 0
+json ok

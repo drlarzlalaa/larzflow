@@ -1,0 +1,93 @@
+# dag - define a workflow as a set of named steps with dependencies.
+# Composes with lib/executor.lz (runs the graph), lib/budgetgate.lz (a
+# step can be gated on a budget category), and the vendored `retry`
+# package (a step can retry with backoff). This module only builds and
+# validates the graph - it does not run anything.
+#
+#   import "dag" as dag
+#   let d = dag.new("etl")
+#   dag.step(d, "fetch", fn() { return fetch_data() })
+#   dag.step(d, "transform", fn() { return transform() }, {"depends_on": ["fetch"]})
+#   dag.step(d, "load", fn() { return load() }, {
+#     "depends_on": ["transform"],
+#     "retry": {"max_attempts": 3},
+#     "budget_gate": {"budget": b, "category": "api_calls", "cost": $0.02}
+#   })
+#   let order = dag.validate(d)   # throws on a cycle or an undefined dependency
+
+fn new(name) {
+  return {"name": name, "steps": {}, "order": []}
+}
+
+# opts:
+#   depends_on   - list of step ids that must complete first (default [])
+#   retry        - opts dict passed straight to retry.call() (default nil, no retry)
+#   budget_gate  - {"budget": <budget.new() object>, "category": str, "cost": money} (default nil)
+fn step(d, id, fn_, opts={}) {
+  if d["steps"].has(id) {
+    throw {"type": "LarzValueError", "message": "duplicate step id: '" + id + "'"}
+  }
+  let depends_on = opts.has("depends_on") ? opts["depends_on"] : []
+  let retry_opts = opts.has("retry") ? opts["retry"] : nil
+  let budget_gate = opts.has("budget_gate") ? opts["budget_gate"] : nil
+  d["steps"][id] = {
+    "id": id, "fn": fn_, "depends_on": depends_on,
+    "retry": retry_opts, "budget_gate": budget_gate
+  }
+  d["order"].push(id)
+  return d
+}
+
+# Checks every depends_on id actually exists, then returns a topological
+# run order (a list of step ids) via depth-first search with 3-color
+# cycle detection. Throws {"type": "LarzValueError", ...} on either an
+# undefined dependency or a cycle, naming the offending step(s) - call
+# this before executor.run() so a bad graph never partially executes.
+fn validate(d) {
+  for id in d["order"] {
+    for dep in d["steps"][id]["depends_on"] {
+      if not d["steps"].has(dep) {
+        throw {"type": "LarzValueError", "message": "step '" + id + "' depends on undefined step '" + dep + "'"}
+      }
+    }
+  }
+
+  let color = {}   # unset = white (unvisited), 1 = grey (in progress), 2 = black (done)
+  let order = []
+
+  fn visit(id, path) {
+    if color.has(id) and color[id] == 1 {
+      throw {"type": "LarzValueError", "message": "cycle detected: " + join(path + [id], " -> ")}
+    }
+    if color.has(id) and color[id] == 2 { return }
+    color[id] = 1
+    for dep in d["steps"][id]["depends_on"] {
+      visit(dep, path + [id])
+    }
+    color[id] = 2
+    order.push(id)
+  }
+
+  for id in d["order"] {
+    visit(id, [])
+  }
+  return order
+}
+
+# All step ids that directly or transitively depend on `id` - used by the
+# executor to mark downstream work "skipped" once a step fails for good.
+fn dependents_of(d, id) {
+  let out = []
+  for other_id in d["order"] {
+    if _depends_transitively(d, other_id, id) { out.push(other_id) }
+  }
+  return out
+}
+
+fn _depends_transitively(d, id, target) {
+  for dep in d["steps"][id]["depends_on"] {
+    if dep == target { return true }
+    if _depends_transitively(d, dep, target) { return true }
+  }
+  return false
+}

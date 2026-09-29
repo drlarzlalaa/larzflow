@@ -1,0 +1,39 @@
+# schedule - trigger a dag on a cron expression, composing the vendored
+# `cron` package's in-process scheduler with lib/executor.lz.
+#
+# Honest limitation: Larzscript has no daemon/background-process
+# primitive (same framing the `cron` package's own docs use for
+# tick()) - "scheduling" here means a foreground loop that calls
+# cron.tick() and sleeps between passes. Run it under systemd/cron/a
+# process supervisor if you need it to survive a reboot or restart on
+# crash - this module doesn't attempt any of that itself.
+#
+#   import "schedule" as schedule
+#   let s = schedule.new()
+#   schedule.add(s, "0 * * * *", my_dag)          # top of every hour
+#   schedule.run_forever(s)                        # foreground; or:
+#   schedule.tick(s, time())                       # drive it yourself
+
+import "cron" as cron
+import "executor" as executor
+
+fn new() { return cron.scheduler() }
+
+# opts is passed straight through to executor.run() (run_id, state_dir).
+fn add(s, expr, d, opts={}) {
+  cron.cron_job(s, expr, fn() { executor.run(d, opts) })
+}
+
+fn tick(s, now) { cron.tick(s, now) }
+
+# Blocks. interval_s between tick() checks (default 60). max_ticks bounds
+# the loop (nil = forever) - set it in tests/demos so a run actually
+# terminates.
+fn run_forever(s, interval_s=60, max_ticks=nil) {
+  let count = 0
+  while max_ticks == nil or count < max_ticks {
+    tick(s, time())
+    sleep(interval_s)
+    count = count + 1
+  }
+}

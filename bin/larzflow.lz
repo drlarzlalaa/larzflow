@@ -1,0 +1,85 @@
+# larzflow - CLI for LarzFlow. A workflow file is a plain .lz script
+# that builds and exports a dag as a top-level `let workflow = ...`
+# (see examples/). No separate config-file DSL - Larzscript modules
+# already expose their top-level names, including to a dynamic
+# `import <variable> as m` (verified on this build), so the CLI loads
+# a workflow file the same way any other module import works, just
+# with the path taken from argv instead of a literal.
+#
+#   larzscript bin/larzflow.lz validate examples/linear.lz
+#   larzscript bin/larzflow.lz run examples/linear.lz
+#   larzscript bin/larzflow.lz status <run_id> [state_dir]
+
+import "../lib/dag" as dag
+import "../lib/executor" as executor
+import "../lib/report" as report
+
+fn _abs(path) {
+  if len(path) > 0 and path[0:1] == "/" { return path }
+  return cwd() + "/" + path
+}
+
+# Dynamic import: the module path comes from argv, not a literal, which
+# this build's `import <expr> as name` supports (relative resolution is
+# to the *importing file's* directory otherwise, so this converts the
+# user's cwd-relative path to absolute first).
+fn _load_workflow(path) {
+  let full = _abs(path)
+  import full as m
+  try {
+    return m.workflow
+  } catch e {
+    throw {"type": "LarzValueError", "message": "'" + path + "' has no top-level `let workflow = ...` for larzflow to run"}
+  }
+}
+
+fn _usage() {
+  print("usage: larzflow validate <workflow.lz>")
+  print("       larzflow run <workflow.lz> [run_id] [state_dir]")
+  print("       larzflow status <run_id> [state_dir]")
+}
+
+fn main() {
+  if len(args) < 1 {
+    _usage()
+    exit(1)
+  }
+  let cmd = args[0]
+
+  if cmd == "validate" {
+    if len(args) < 2 { _usage(); exit(1) }
+    let d = _load_workflow(args[1])
+    let order = dag.validate(d)
+    print("ok: " + str(len(order)) + " step(s), run order: " + join(order, " -> "))
+    return
+  }
+
+  if cmd == "run" {
+    if len(args) < 2 { _usage(); exit(1) }
+    let d = _load_workflow(args[1])
+    let opts = {}
+    if len(args) >= 3 { opts["run_id"] = args[2] }
+    if len(args) >= 4 { opts["state_dir"] = args[3] }
+    let state = executor.run(d, opts)
+    print(report.run_text(state))
+    let any_failed = false
+    for id in keys(state["steps"]) {
+      if state["steps"][id]["status"] == "fail" { any_failed = true }
+    }
+    if any_failed { exit(1) }
+    return
+  }
+
+  if cmd == "status" {
+    if len(args) < 2 { _usage(); exit(1) }
+    let state_dir = len(args) >= 3 ? args[2] : "./.larzflow/runs"
+    let state = executor.load(args[1], state_dir)
+    print(report.run_text(state))
+    return
+  }
+
+  _usage()
+  exit(1)
+}
+
+main()

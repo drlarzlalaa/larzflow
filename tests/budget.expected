@@ -1,0 +1,5 @@
+calling the cheap endpoint...
+run budget-1 (budget-gated)
+  [ok]   cheap_call (Xs)
+  [fail] pricey_call: BudgetExceededError: budget gate blocked step: category 'api_calls' has $0.40 remaining of a $1.00 limit, step costs $0.70 (line 40)
+exit 1

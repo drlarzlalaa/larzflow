@@ -1,0 +1,2 @@
+LarzValueError: cycle detected: x -> y -> x (line 60)
+exit 1

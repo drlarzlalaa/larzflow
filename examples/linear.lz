@@ -1,0 +1,22 @@
+# A simple linear ETL workflow: fetch -> transform -> load, all succeed.
+#
+#   larzscript bin/larzflow.lz run examples/linear.lz
+
+import "../lib/dag" as dag
+
+let workflow = dag.new("etl-linear")
+
+dag.step(workflow, "fetch", fn() {
+  print("fetching source data...")
+  return "raw-data(42 rows)"
+})
+
+dag.step(workflow, "transform", fn() {
+  print("transforming...")
+  return "clean-data(42 rows)"
+}, {"depends_on": ["fetch"]})
+
+dag.step(workflow, "load", fn() {
+  print("loading into warehouse...")
+  return "loaded 42 rows"
+}, {"depends_on": ["transform"]})

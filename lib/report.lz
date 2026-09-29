@@ -1,0 +1,41 @@
+# report - render a dag definition or a run's persisted state as text or JSON.
+#
+#   import "report" as report
+#   print(report.graph_text(d))          # step -> depends_on listing
+#   print(report.run_text(state))        # per-step status after executor.run()
+#   print(report.run_json(state))
+
+import "json" as json
+
+# A flat "id -> [deps]" listing in the dag's declared order - the DAG
+# visualization this project offers (no graph drawing).
+fn graph_text(d) {
+  let lines = ["dag: " + d["name"]]
+  for id in d["order"] {
+    let step = d["steps"][id]
+    let deps = len(step["depends_on"]) == 0 ? "(none)" : join(step["depends_on"], ", ")
+    lines.push("  " + id + " <- " + deps)
+  }
+  return join(lines, "\n")
+}
+
+fn run_text(state) {
+  let lines = ["run " + state["run_id"] + " (" + state["dag"] + ")"]
+  for id in state["order"] {
+    if not state["steps"].has(id) {
+      lines.push("  [pending] " + id)
+      continue
+    }
+    let s = state["steps"][id]
+    if s["status"] == "ok" {
+      lines.push("  [ok]   " + id + " (" + str(round(s["duration_s"], 3)) + "s)")
+    } else if s["status"] == "fail" {
+      lines.push("  [fail] " + id + ": " + s["error"])
+    } else {
+      lines.push("  [skip] " + id + " (" + s["reason"] + ")")
+    }
+  }
+  return join(lines, "\n")
+}
+
+fn run_json(state) { return json.stringify(state) }

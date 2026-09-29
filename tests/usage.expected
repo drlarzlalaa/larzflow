@@ -1,0 +1,12 @@
+usage: larzflow validate <workflow.lz>
+       larzflow run <workflow.lz> [run_id] [state_dir]
+       larzflow status <run_id> [state_dir]
+exit 1
+usage: larzflow validate <workflow.lz>
+       larzflow run <workflow.lz> [run_id] [state_dir]
+       larzflow status <run_id> [state_dir]
+exit 1
+usage: larzflow validate <workflow.lz>
+       larzflow run <workflow.lz> [run_id] [state_dir]
+       larzflow status <run_id> [state_dir]
+exit 1

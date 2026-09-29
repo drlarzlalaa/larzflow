@@ -1,0 +1,52 @@
+# budgetgate - the money-native piece of LarzFlow: gate a DAG step on a
+# spending category, using the vendored `budget` package (category-based
+# tracking on Larzscript's own native money type, no separate ledger).
+#
+# Deliberately NOT built on the native `paywall`/`subscribe`/`has`
+# keywords - those track subscription state by the wallet's declared
+# variable name rather than object identity, which breaks the moment a
+# wallet is created dynamically by a shared factory function (filed as
+# https://github.com/larz-scripter/larzscript/issues/37). A workflow
+# engine creates steps/budgets programmatically, so it hits that pattern
+# immediately - `budget.lz`'s plain dict-based spend tracking has no such
+# bug, so that's what this module builds on.
+#
+#   import "budgetgate" as budgetgate
+#   import "budget" as budget
+#   let b = budget.new()
+#   budget.set_limit(b, "api_calls", $5.00)
+#   let gate = {"budget": b, "category": "api_calls", "cost": $0.50}
+#   budgetgate.check(gate)     # throws BudgetExceededError if this would go over
+#   # ... run the step ...
+#   budgetgate.record(gate)    # only after the step actually succeeds
+
+import "budget" as budget
+
+# Throws {"type": "BudgetExceededError", "message": "..."} if spending
+# gate["cost"] against gate["category"] would push it over its limit.
+# Read-only - does not record anything, so a step that fails after a
+# passing check hasn't been charged. Returns true on pass.
+fn check(gate) {
+  let b = gate["budget"]
+  let category = gate["category"]
+  let cost = gate["cost"]
+  let status = budget.status(b, category)
+  let projected = status["spent"] + cost
+  if projected > status["limit"] {
+    throw {
+      "type": "BudgetExceededError",
+      "message": "budget gate blocked step: category '" + category + "' has " +
+        str(status["remaining"]) + " remaining of a " + str(status["limit"]) +
+        " limit, step costs " + str(cost)
+    }
+  }
+  return true
+}
+
+# Records the spend. Call only after the gated step has actually
+# succeeded - check() then record() are deliberately two calls, not
+# one, so a step that throws mid-run is never charged for work it
+# didn't finish.
+fn record(gate, note="") {
+  budget.spend(gate["budget"], gate["category"], gate["cost"], note)
+}
